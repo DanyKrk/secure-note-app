@@ -11,7 +11,6 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
-import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -20,10 +19,10 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,8 +36,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.security.crypto.EncryptedFile
@@ -48,20 +45,17 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
-private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
-private const val MASTER_KEY_ALIAS = "_androidx_security_master_key_"
 private const val ENCRYPTED_FILE_NAME = "secure_notes_data.enc"
 private const val EXPORT_FILE_NAME = "secure_notes_export.bak"
 
 private const val PBE_ITERATION_COUNT = 65536
-private const val PBE_KEY_LENGTH = 256 // AES-256
+private const val PBE_KEY_LENGTH = 256
 private const val PBE_SALT_LENGTH = 16
 private const val GCM_IV_LENGTH = 12
 private const val GCM_TAG_LENGTH = 128
@@ -72,7 +66,7 @@ class SecureDataActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            setRecentsScreenshotEnabled(false)
+            hideRecentsScreenshotContent()
         }
         super.onCreate(savedInstanceState)
         setContent {
@@ -80,6 +74,11 @@ class SecureDataActivity : FragmentActivity() {
                 SecureNotesScreen(activity = this)
             }
         }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private fun hideRecentsScreenshotContent() {
+        setRecentsScreenshotEnabled(false)
     }
 }
 
@@ -94,7 +93,6 @@ fun SecureNotesScreen(activity: FragmentActivity) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
-//    val activity = LocalContext.current as FragmentActivity // Dla BiometricPrompt
 
     suspend fun prepareExportDataInBackground(ctx: android.content.Context, pass: String): Uri? {
         Log.d(TAG, "Starting prepareExportDataInBackground...")
@@ -300,7 +298,7 @@ fun SecureNotesScreen(activity: FragmentActivity) {
                         focusManager.clearFocus()
                         coroutineScope.launch {
                             val authenticated = showBiometricPrompt(
-                                activity, // Użyj activity
+                                activity,
                                 "Authenticate to Save Note",
                                 "Confirm your identity to save the note."
                             )
@@ -321,29 +319,24 @@ fun SecureNotesScreen(activity: FragmentActivity) {
                     onClick = {
                         focusManager.clearFocus()
                         coroutineScope.launch {
-                            // POCZĄTEK ZMIANY
                             val authenticated = showBiometricPrompt(
-                                activity, // Użyj activity
+                                activity,
                                 "Authenticate to Load Note",
                                 "Confirm your identity to load the note."
                             )
                             if (authenticated) {
-                                // KONIEC ZMIANY
                                 val loadedData = loadEncryptedData(context)
                                 if (loadedData != null) {
                                     noteContent = loadedData
                                     showToast(context, "Note loaded")
-                                } else {
-                                    // Komunikat już pokazany lub autoryzacja nie powiodła się
                                 }
-                                // POCZĄTEK ZMIANY
                             } else {
                                 showToast(context, "Authentication failed. Note not loaded.")
                             }
-                            // KONIEC ZMIANY
                         }
                     },
-                    // ...
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF43A047))
                 ) { Text("Load Note") }
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -375,28 +368,23 @@ fun SecureNotesScreen(activity: FragmentActivity) {
                 Button(
                     onClick = {
                         coroutineScope.launch {
-                            // POCZĄTEK ZMIANY
                             val authenticated = showBiometricPrompt(
-                                activity, // Użyj activity
+                                activity,
                                 "Authenticate to Clear Data",
                                 "Confirm your identity to clear all notes."
                             )
                             if (authenticated) {
-                                // KONIEC ZMIANY
                                 if (clearSecureData(context)) {
                                     noteContent = ""
                                     showToast(context, "Data cleared successfully")
-                                } else {
-                                    // Komunikat już pokazany
                                 }
-                                // POCZĄTEK ZMIANY
                             } else {
                                 showToast(context, "Authentication failed. Data not cleared.")
                             }
-                            // KONIEC ZMIANY
                         }
                     },
-                    // ...
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF44336))
                 ) { Text("Clear Data") }
             }
         }
@@ -409,14 +397,13 @@ fun SecureNotesScreen(activity: FragmentActivity) {
                     isExportDialog = false
                     Log.d(TAG, "Password dialog dismissed.")
                 },
-                title = { Text(if (isExportDialog) "Export Password" else "Import Password") },
+                title = { Text(if (isExportDialog) "Set Export Password" else "Enter Import Password") },
                 text = {
                     OutlinedTextField(
                         value = passwordInput,
                         onValueChange = { passwordInput = it },
                         label = { Text("Enter password") },
                         singleLine = true
-                        // Consider adding: keyboardType = KeyboardType.Password, visualTransformation = PasswordVisualTransformation()
                     )
                 },
                 confirmButton = {
@@ -425,46 +412,35 @@ fun SecureNotesScreen(activity: FragmentActivity) {
                         onClick = {
                             Log.d(TAG, "Password dialog OK clicked. IsExport: $isExportDialog")
                             if (isExportDialog) {
-                                Log.d(TAG, "Launching file exporter...")
-                                fileExporter.launch(EXPORT_FILE_NAME)
+                                fileExporter.launch("secure_notes_export.bak")
                                 showPasswordDialog = false
                             } else {
-                                if (passwordInput.isNotBlank()) {
-                                    val currentSourceUri = importUri
-                                    if (currentSourceUri != null) {
-                                        Log.d(TAG, "Starting import coroutine...")
-                                        coroutineScope.launch {
-                                            val importedData = importDataWithPassword(context, currentSourceUri, passwordInput)
-                                            if (importedData != null) {
-                                                // POCZĄTEK ZMIANY
-                                                val authenticated = showBiometricPrompt(
-                                                    activity, // Użyj activity
-                                                    "Authenticate to Save Imported Note",
-                                                    "Confirm your identity to save the imported note."
-                                                )
-                                                if (authenticated) {
-                                                    // KONIEC ZMIANY
-                                                    saveEncryptedData(context, importedData) {
-                                                        noteContent = importedData
-                                                        showToast(context, "Data imported and saved successfully!")
-                                                        Log.d(TAG, "Import successful and saved.")
-                                                    }
-                                                    // POCZĄTEK ZMIANY
-                                                } else {
-                                                    showToast(context, "Authentication failed. Imported data not saved.")
+                                val currentSourceUri = importUri
+                                if (currentSourceUri != null && passwordInput.isNotBlank()) {
+                                    coroutineScope.launch {
+                                        val importedData = importDataWithPassword(context, currentSourceUri, passwordInput)
+                                        if (importedData != null) {
+                                            val authenticated = showBiometricPrompt(
+                                                activity,
+                                                "Authenticate to Save Imported Note",
+                                                "Confirm your identity to save the imported note."
+                                            )
+                                            if (authenticated) {
+                                                saveEncryptedData(context, importedData) {
+                                                    noteContent = importedData
+                                                    showToast(context, "Data imported and saved successfully!")
                                                 }
-                                                // KONIEC ZMIANY
                                             } else {
-                                                // Toast dla niepowodzenia importu już pokazany
-                                                Log.w(TAG, "Import failed (importDataWithPassword returned null).")
+                                                showToast(context, "Authentication failed. Imported data not saved.")
                                             }
-                                            passwordInput = ""
-                                            importUri = null
                                         }
-                                    } else {
-                                        Log.e(TAG, "Import OK clicked, but importUri is null!")
-                                        showToast(context, "Error: No file selected for import.")
+                                        passwordInput = ""
+                                        importUri = null
                                     }
+                                } else if (currentSourceUri == null) {
+                                    showToast(context, "Error: No file selected for import.")
+                                } else {
+                                    showToast(context, "Password cannot be empty for import.")
                                 }
                                 showPasswordDialog = false
                             }
@@ -476,6 +452,7 @@ fun SecureNotesScreen(activity: FragmentActivity) {
                         showPasswordDialog = false
                         passwordInput = ""
                         isExportDialog = false
+                        importUri = null
                         Log.d(TAG, "Password dialog Cancel clicked.")
                     }) { Text("Cancel") }
                 }
@@ -488,9 +465,8 @@ fun showToast(context: android.content.Context, message: String) {
     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 }
 
-// New suspend function for biometric authentication
 private suspend fun showBiometricPrompt(
-    activity: FragmentActivity, // Requires FragmentActivity
+    activity: FragmentActivity,
     title: String,
     subtitle: String
 ): Boolean = suspendCancellableCoroutine { continuation ->
@@ -519,9 +495,10 @@ private suspend fun showBiometricPrompt(
                     BiometricPrompt.ERROR_USER_CANCELED -> "Authentication canceled."
                     BiometricPrompt.ERROR_NO_BIOMETRICS -> "No biometrics enrolled."
                     BiometricPrompt.ERROR_NO_DEVICE_CREDENTIAL -> "No device credential (PIN, pattern, password) set up."
+                    BiometricPrompt.ERROR_TIMEOUT -> "Authentication timed out."
                     else -> "Authentication error: $errString"
                 }
-                activity.runOnUiThread { // Ensure toast is on main thread
+                activity.runOnUiThread {
                     showToast(activity, userMessage)
                 }
                 if (continuation.isActive) continuation.resume(false)
@@ -530,9 +507,6 @@ private suspend fun showBiometricPrompt(
             override fun onAuthenticationFailed() {
                 super.onAuthenticationFailed()
                 Log.w(TAG, "Biometric authentication failed (not recognized).")
-                activity.runOnUiThread { // Ensure toast is on main thread
-                    showToast(activity, "Authentication failed. Not recognized.")
-                }
                 if (continuation.isActive) continuation.resume(false)
             }
         })
@@ -609,7 +583,6 @@ suspend fun saveEncryptedData(context: android.content.Context, data: String, on
     }
 }
 
-// Internal load function without biometric prompt, for use by export.
 private suspend fun loadEncryptedDataInternal(context: android.content.Context): String? {
     return withContext(Dispatchers.IO) {
         try {
@@ -644,8 +617,7 @@ private suspend fun loadEncryptedDataInternal(context: android.content.Context):
 }
 
 suspend fun loadEncryptedData(context: android.content.Context): String? {
-    // Biometric check is now done *before* calling this function in the UI.
-    return loadEncryptedDataInternal(context) // ZMIANA: Wywołuje wersję wewnętrzną
+    return loadEncryptedDataInternal(context)
 }
 
 suspend fun clearSecureData(context: android.content.Context): Boolean {
@@ -657,6 +629,9 @@ suspend fun clearSecureData(context: android.content.Context): Boolean {
             if (file.exists()) {
                 deleted = file.delete()
                 Log.d(TAG, "clearSecureData: File deletion attempt result: $deleted")
+                if(!deleted){
+                    withContext(Dispatchers.Main) { showToast(context, "Failed to delete note data.")}
+                }
             } else {
                 Log.d(TAG, "clearSecureData: File did not exist.")
                 deleted = true
@@ -692,7 +667,7 @@ suspend fun importDataWithPassword(context: android.content.Context, sourceUri: 
 
             val saltRead = inputStream.read(salt)
             val ivRead = inputStream.read(iv)
-            Log.d(TAG, "importDataWithPassword: Bytes read for salt: $saltRead (expected $PBE_SALT_LENGTH), for IV: $ivRead (expected $GCM_IV_LENGTH)")
+            Log.d(TAG, "importDataWithPassword: Bytes read for salt: $saltRead, for IV: $ivRead")
 
             if (saltRead != PBE_SALT_LENGTH || ivRead != GCM_IV_LENGTH) {
                 Log.e(TAG, "importDataWithPassword: Invalid file format - incorrect salt/IV length.")
