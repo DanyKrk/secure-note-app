@@ -41,10 +41,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.security.crypto.EncryptedFile
 import androidx.security.crypto.MasterKeys
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
 private const val MASTER_KEY_ALIAS = "_androidx_security_master_key_"
@@ -57,21 +64,21 @@ private const val PBE_SALT_LENGTH = 16
 private const val GCM_IV_LENGTH = 12
 private const val GCM_TAG_LENGTH = 128
 
-private const val TAG = "ExportDebug"
+private const val TAG = "SecureNoteApp"
 
-class SecureDataActivity : ComponentActivity() {
+class SecureDataActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                SecureNotesScreen()
+                SecureNotesScreen(activity = this)
             }
         }
     }
 }
 
 @Composable
-fun SecureNotesScreen() {
+fun SecureNotesScreen(activity: FragmentActivity) {
     var noteContent by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
     var showPasswordDialog by remember { mutableStateOf(false) }
@@ -81,6 +88,7 @@ fun SecureNotesScreen() {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
+//    val activity = LocalContext.current as FragmentActivity // Dla BiometricPrompt
 
     suspend fun prepareExportDataInBackground(ctx: android.content.Context, pass: String): Uri? {
         Log.d(TAG, "Starting prepareExportDataInBackground...")
@@ -92,7 +100,7 @@ fun SecureNotesScreen() {
 
         return withContext(Dispatchers.IO) {
             val currentData = try {
-                loadEncryptedData(ctx)
+                loadEncryptedDataInternal(ctx)
             } catch (e: Exception) {
                 Log.e(TAG, "prepareExportDataInBackground: Error loading data to export", e)
                 null
@@ -285,8 +293,17 @@ fun SecureNotesScreen() {
                     onClick = {
                         focusManager.clearFocus()
                         coroutineScope.launch {
-                            saveEncryptedData(context, noteContent) {
-                                showToast(context, "Note saved securely")
+                            val authenticated = showBiometricPrompt(
+                                activity, // Użyj activity
+                                "Authenticate to Save Note",
+                                "Confirm your identity to save the note."
+                            )
+                            if (authenticated) {
+                                saveEncryptedData(context, noteContent) {
+                                    showToast(context, "Note saved securely")
+                                }
+                            } else {
+                                showToast(context, "Authentication failed. Note not saved.")
                             }
                         }
                     },
@@ -298,17 +315,29 @@ fun SecureNotesScreen() {
                     onClick = {
                         focusManager.clearFocus()
                         coroutineScope.launch {
-                            val loadedData = loadEncryptedData(context)
-                            if (loadedData != null) {
-                                noteContent = loadedData
-                                showToast(context, "Note loaded")
+                            // POCZĄTEK ZMIANY
+                            val authenticated = showBiometricPrompt(
+                                activity, // Użyj activity
+                                "Authenticate to Load Note",
+                                "Confirm your identity to load the note."
+                            )
+                            if (authenticated) {
+                                // KONIEC ZMIANY
+                                val loadedData = loadEncryptedData(context)
+                                if (loadedData != null) {
+                                    noteContent = loadedData
+                                    showToast(context, "Note loaded")
+                                } else {
+                                    // Komunikat już pokazany lub autoryzacja nie powiodła się
+                                }
+                                // POCZĄTEK ZMIANY
                             } else {
-                                // Message already shown in loadEncryptedData
+                                showToast(context, "Authentication failed. Note not loaded.")
                             }
+                            // KONIEC ZMIANY
                         }
                     },
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF43A047))
+                    // ...
                 ) { Text("Load Note") }
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -340,16 +369,28 @@ fun SecureNotesScreen() {
                 Button(
                     onClick = {
                         coroutineScope.launch {
-                            if (clearSecureData(context)) {
-                                noteContent = ""
-                                showToast(context, "Data cleared successfully")
+                            // POCZĄTEK ZMIANY
+                            val authenticated = showBiometricPrompt(
+                                activity, // Użyj activity
+                                "Authenticate to Clear Data",
+                                "Confirm your identity to clear all notes."
+                            )
+                            if (authenticated) {
+                                // KONIEC ZMIANY
+                                if (clearSecureData(context)) {
+                                    noteContent = ""
+                                    showToast(context, "Data cleared successfully")
+                                } else {
+                                    // Komunikat już pokazany
+                                }
+                                // POCZĄTEK ZMIANY
                             } else {
-                                // Message already shown in clearSecureData
+                                showToast(context, "Authentication failed. Data not cleared.")
                             }
+                            // KONIEC ZMIANY
                         }
                     },
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF44336))
+                    // ...
                 ) { Text("Clear Data") }
             }
         }
@@ -389,13 +430,26 @@ fun SecureNotesScreen() {
                                         coroutineScope.launch {
                                             val importedData = importDataWithPassword(context, currentSourceUri, passwordInput)
                                             if (importedData != null) {
-                                                saveEncryptedData(context, importedData) {
-                                                    noteContent = importedData
-                                                    showToast(context, "Data imported successfully!")
-                                                    Log.d(TAG, "Import successful.")
+                                                // POCZĄTEK ZMIANY
+                                                val authenticated = showBiometricPrompt(
+                                                    activity, // Użyj activity
+                                                    "Authenticate to Save Imported Note",
+                                                    "Confirm your identity to save the imported note."
+                                                )
+                                                if (authenticated) {
+                                                    // KONIEC ZMIANY
+                                                    saveEncryptedData(context, importedData) {
+                                                        noteContent = importedData
+                                                        showToast(context, "Data imported and saved successfully!")
+                                                        Log.d(TAG, "Import successful and saved.")
+                                                    }
+                                                    // POCZĄTEK ZMIANY
+                                                } else {
+                                                    showToast(context, "Authentication failed. Imported data not saved.")
                                                 }
+                                                // KONIEC ZMIANY
                                             } else {
-                                                showToast(context, "Import failed. Check password or file.")
+                                                // Toast dla niepowodzenia importu już pokazany
                                                 Log.w(TAG, "Import failed (importDataWithPassword returned null).")
                                             }
                                             passwordInput = ""
@@ -426,6 +480,87 @@ fun SecureNotesScreen() {
 
 fun showToast(context: android.content.Context, message: String) {
     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+}
+
+// New suspend function for biometric authentication
+private suspend fun showBiometricPrompt(
+    activity: FragmentActivity, // Requires FragmentActivity
+    title: String,
+    subtitle: String
+): Boolean = suspendCancellableCoroutine { continuation ->
+    val executor = ContextCompat.getMainExecutor(activity)
+    val biometricManager = BiometricManager.from(activity)
+
+    val promptInfo = BiometricPrompt.PromptInfo.Builder()
+        .setTitle(title)
+        .setSubtitle(subtitle)
+        .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+        .build()
+
+    val biometricPrompt = BiometricPrompt(activity, executor,
+        object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                super.onAuthenticationSucceeded(result)
+                Log.d(TAG, "Biometric authentication succeeded.")
+                if (continuation.isActive) continuation.resume(true)
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                super.onAuthenticationError(errorCode, errString)
+                Log.e(TAG, "Biometric authentication error: $errorCode - $errString")
+                val userMessage = when (errorCode) {
+                    BiometricPrompt.ERROR_NEGATIVE_BUTTON,
+                    BiometricPrompt.ERROR_USER_CANCELED -> "Authentication canceled."
+                    BiometricPrompt.ERROR_NO_BIOMETRICS -> "No biometrics enrolled."
+                    BiometricPrompt.ERROR_NO_DEVICE_CREDENTIAL -> "No device credential (PIN, pattern, password) set up."
+                    else -> "Authentication error: $errString"
+                }
+                activity.runOnUiThread { // Ensure toast is on main thread
+                    showToast(activity, userMessage)
+                }
+                if (continuation.isActive) continuation.resume(false)
+            }
+
+            override fun onAuthenticationFailed() {
+                super.onAuthenticationFailed()
+                Log.w(TAG, "Biometric authentication failed (not recognized).")
+                activity.runOnUiThread { // Ensure toast is on main thread
+                    showToast(activity, "Authentication failed. Not recognized.")
+                }
+                if (continuation.isActive) continuation.resume(false)
+            }
+        })
+
+    when (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)) {
+        BiometricManager.BIOMETRIC_SUCCESS -> {
+            Log.d(TAG, "Authentication is available. Showing prompt.")
+            biometricPrompt.authenticate(promptInfo)
+        }
+        BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> {
+            Log.e(TAG, "No biometric hardware.")
+            showToast(activity, "No biometric hardware available on this device.")
+            if (continuation.isActive) continuation.resume(false)
+        }
+        BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> {
+            Log.e(TAG, "Biometric hardware unavailable.")
+            showToast(activity, "Biometric features are currently unavailable.")
+            if (continuation.isActive) continuation.resume(false)
+        }
+        BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
+            Log.e(TAG, "No biometrics enrolled and no device credential set.")
+            showToast(activity, "Please set up a screen lock (PIN, pattern, or password) or enroll biometrics in your device settings.")
+            if (continuation.isActive) continuation.resume(false)
+        }
+        else -> {
+            Log.e(TAG, "Biometric authentication not available for other reasons.")
+            showToast(activity, "Biometric authentication is not available.")
+            if (continuation.isActive) continuation.resume(false)
+        }
+    }
+
+    continuation.invokeOnCancellation {
+        Log.d(TAG, "Biometric prompt coroutine cancelled.")
+    }
 }
 
 private fun getOrCreateMasterKey(): String {
@@ -468,16 +603,16 @@ suspend fun saveEncryptedData(context: android.content.Context, data: String, on
     }
 }
 
-suspend fun loadEncryptedData(context: android.content.Context): String? {
+// Internal load function without biometric prompt, for use by export.
+private suspend fun loadEncryptedDataInternal(context: android.content.Context): String? {
     return withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "loadEncryptedData: Loading data...")
+            Log.d(TAG, "loadEncryptedDataInternal: Loading data...")
             val masterKeyAlias = getOrCreateMasterKey()
             val file = File(context.filesDir, ENCRYPTED_FILE_NAME)
 
             if (!file.exists()) {
-                Log.w(TAG, "loadEncryptedData: Data file not found.")
-                withContext(Dispatchers.Main) { /* Optional: showToast(context, "No data file found.") */ }
+                Log.w(TAG, "loadEncryptedDataInternal: Data file not found.")
                 return@withContext null
             }
 
@@ -492,14 +627,19 @@ suspend fun loadEncryptedData(context: android.content.Context): String? {
                 val bytes = inputStream.readBytes()
                 String(bytes, StandardCharsets.UTF_8)
             }
-            Log.d(TAG, "loadEncryptedData: Data loaded successfully. Length: ${data.length}")
+            Log.d(TAG, "loadEncryptedDataInternal: Data loaded successfully. Length: ${data.length}")
             data
         } catch (e: Exception) {
-            Log.e(TAG, "loadEncryptedData: Error loading data", e)
-            withContext(Dispatchers.Main) { showToast(context, "Error loading data: ${e.message}") }
+            Log.e(TAG, "loadEncryptedDataInternal: Error loading data", e)
+            withContext(Dispatchers.Main) { showToast(context, "Error loading internal data: ${e.message}") }
             null
         }
     }
+}
+
+suspend fun loadEncryptedData(context: android.content.Context): String? {
+    // Biometric check is now done *before* calling this function in the UI.
+    return loadEncryptedDataInternal(context) // ZMIANA: Wywołuje wersję wewnętrzną
 }
 
 suspend fun clearSecureData(context: android.content.Context): Boolean {
