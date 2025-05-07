@@ -1,9 +1,11 @@
 package com.example.securenoteapp
 
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import android.view.WindowManager
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -68,6 +70,10 @@ private const val TAG = "SecureNoteApp"
 
 class SecureDataActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            setRecentsScreenshotEnabled(false)
+        }
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
